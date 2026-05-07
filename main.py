@@ -1,0 +1,136 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import json
+from urllib import request, error
+API_URL = "https://api.exchangerate-api.com/v4/latest/USD"
+HISTORY_FILE = "history.json"
+
+def load_history():
+    try:
+        with open(HISTORY_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+def save_history(history):
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=4)
+def get_rates():
+    """
+    Получает актуальные курсы валют с внешнего API.
+    Использует стандартную библиотеку urllib вместо requests.
+    """
+    try:
+        with request.urlopen(API_URL) as response:
+            data = response.read().decode()
+            rates = json.loads(data)["rates"]
+            return rates
+
+    except error.URLError as e:
+        messagebox.showerror("Ошибка сети", f"Не удалось подключиться к серверу: {e.reason}")
+    except json.JSONDecodeError:
+        messagebox.showerror("Ошибка данных", "Получен неверный ответ от сервера.")
+    except Exception as e:
+        messagebox.showerror("Ошибка", f"Произошла непредвиденная ошибка: {e}")
+        
+    return None
+
+def convert():
+    from_currency = from_var.get()
+    to_currency = to_var.get()
+    amount_str = amount_entry.get()
+
+    if not amount_str.replace('.', '', 1).isdigit():
+        messagebox.showerror("Ошибка", "Введите корректную сумму (положительное число)!")
+        return
+        
+    amount = float(amount_str)
+    
+    if amount <= 0:
+        messagebox.showerror("Ошибка", "Сумма должна быть больше нуля!")
+        return
+
+    rates = get_rates()
+    if not rates:
+        return
+
+    if from_currency != "USD":
+        amount_in_usd = amount / rates[from_currency]
+    else:
+        amount_in_usd = amount
+
+    if to_currency != "USD":
+        result = amount_in_usd * rates[to_currency]
+    else:
+        result = amount_in_usd
+
+    result_label.config(text=f"Результат: {result:.2f} {to_currency}")
+
+    history.append({
+        "from": from_currency,
+        "to": to_currency,
+        "amount": amount,
+        "result": result,
+        "date": "дата и время"
+    })
+    
+    save_history(history)
+    update_history_table()
+
+def update_history_table():
+    history_treeview.delete(*history_treeview.get_children())
+    
+    for item in history:
+        history_treeview.insert("", "end", values=(
+            item["from"],
+            item["to"],
+            item["amount"],
+            f"{item['result']:.2f}",
+            item["date"]
+        ))
+
+history = load_history()
+
+root = tk.Tk()
+root.title("Конвертер валют")
+root.geometry("600x400")
+
+tk.Label(root, text="Из:").grid(row=0, column=0, padx=10, pady=10)
+tk.Label(root, text="В:").grid(row=0, column=2, padx=10, pady=10)
+tk.Label(root, text="Сумма:").grid(row=1, column=0, padx=10, pady=10)
+
+try:
+    initial_rates = get_rates() or {}
+except Exception:
+    initial_rates = {}
+
+currencies = ["USD"] + sorted([c for c in initial_rates.keys() if c != "USD"])
+
+from_var = tk.StringVar(value="USD")
+to_var = tk.StringVar(value="RUB")
+from_menu = ttk.OptionMenu(root, from_var, *currencies)
+to_menu = ttk.OptionMenu(root, to_var, *currencies)
+amount_entry = tk.Entry(root)
+convert_button = tk.Button(root, text="Конвертировать", command=convert)
+result_label = tk.Label(root, text="Результат: ")
+
+from_menu.grid(row=0, column=1, padx=10, pady=10)
+to_menu.grid(row=0, column=3, padx=10, pady=10)
+amount_entry.grid(row=1, column=1, columnspan=2, sticky="ew", padx=10, pady=10)
+convert_button.grid(row=2, column=1, columnspan=2, pady=10)
+result_label.grid(row=3, column=0, columnspan=4, pady=10)
+
+history_treeview = ttk.Treeview(root, columns=("from", "to", "amount", "result", "date"), show="headings")
+history_treeview.heading("from", text="Из")
+history_treeview.heading("to", text="В")
+history_treeview.heading("amount", text="Сумма")
+history_treeview.heading("result", text="Результат")
+history_treeview.heading("date", text="Дата")
+history_treeview.grid(row=4, column=0, columnspan=4, sticky="nsew", padx=10, pady=10)
+
+update_history_table()
+root.grid_rowconfigure(4, weight=1)
+root.grid_columnconfigure(1, weight=1)
+root.grid_columnconfigure(2, weight=1)
+
+root.mainloop()
